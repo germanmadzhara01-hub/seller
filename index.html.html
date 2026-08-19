@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Кабинет Селлера</title>
+    <!-- Telegram WebApp SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- Tailwind CSS (для быстрой и красивой верстки) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: var(--tg-theme-bg-color, #17212b);
+            color: var(--tg-theme-text-color, #ffffff);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        /* Разрешаем выделение/вставку текста в полях ввода — иначе на некоторых
+           мобильных браузерах пользователю неудобно вставлять длинный API-токен */
+        input, textarea {
+            -webkit-user-select: text;
+            user-select: text;
+        }
+        .active-tab-btn {
+            color: #3b82f6;
+            border-bottom: 2px solid #3b82f6;
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen justify-between">
+
+    <!-- HEADER: Профиль пользователя -->
+    <div class="p-4 bg-gray-900 border-b border-gray-800 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+            <div id="user-avatar" class="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center font-bold text-lg text-white">
+                U
+            </div>
+            <div>
+                <h1 id="user-name" class="font-semibold text-sm">Загрузка...</h1>
+                <p id="user-id" class="text-xs text-gray-400">ID: ---</p>
+            </div>
+        </div>
+        <span class="text-xs px-2 py-1 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">PRO</span>
+    </div>
+
+    <!-- MAIN CONTENT: Экраны -->
+    <main class="flex-1 overflow-y-auto p-4">
+
+        <!-- Вкладка 1: Главная / Обзор -->
+        <div id="tab-home" class="tab-content space-y-4">
+            <div class="bg-gray-800/50 p-4 rounded-xl border border-gray-700/50">
+                <h2 class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Статус подключения</h2>
+                <div class="flex items-center space-x-2">
+                    <span id="status-dot" class="w-3 h-3 rounded-full bg-yellow-500 animate-pulse"></span>
+                    <span id="status-text" class="text-sm font-medium">Ожидание настройки API</span>
+                </div>
+            </div>
+
+            <div class="p-4 bg-gradient-to-r from-blue-900/30 to-purple-900/30 rounded-xl border border-blue-500/20">
+                <h3 class="font-semibold text-sm mb-1">🚀 Добро пожаловать!</h3>
+                <p class="text-xs text-gray-300">Чтобы начать работу с автоответами на отзывы и остатками, подключите ваш API-ключ в настройках.</p>
+            </div>
+        </div>
+
+        <!-- Вкладка 2: Настройки API (Основная) -->
+        <div id="tab-settings" class="tab-content hidden space-y-4">
+            <div>
+                <h2 class="text-lg font-bold">🔑 API Ключи WB</h2>
+                <p class="text-xs text-gray-400">Введите токен из ЛК Wildberries (раздел «Доступ к API»).</p>
+            </div>
+
+            <div class="bg-gray-800/80 p-4 rounded-xl border border-gray-700 space-y-3">
+                <div>
+                    <label class="block text-xs font-medium text-gray-300 mb-1">API Токен (Контент / Статистика)</label>
+                    <input
+                        type="password"
+                        id="wb-api-key"
+                        autocomplete="off"
+                        placeholder="eyJhY3Rpb24iOi..."
+                        class="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                    >
+                </div>
+
+                <button
+                    onclick="saveApiKey()"
+                    id="save-btn"
+                    class="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium py-3 rounded-lg text-xs transition active:scale-95"
+                >
+                    Проверить и сохранить
+                </button>
+            </div>
+
+            <!-- Карточка статуса ответа от n8n -->
+            <div id="status-card" class="hidden p-4 rounded-xl border text-xs leading-relaxed"></div>
+        </div>
+
+    </main>
+
+    <!-- BOTTOM NAV BAR: Нижняя навигация -->
+    <nav class="bg-gray-900 border-t border-gray-800 flex justify-around p-2 text-xs">
+        <button onclick="switchTab('home')" id="btn-home" class="flex-1 py-2 text-center text-gray-400 active-tab-btn flex flex-col items-center">
+            <span>🏠</span>
+            <span class="mt-1">Главная</span>
+        </button>
+        <button onclick="switchTab('settings')" id="btn-settings" class="flex-1 py-2 text-center text-gray-400 flex flex-col items-center">
+            <span>⚙️</span>
+            <span class="mt-1">Настройки</span>
+        </button>
+    </nav>
+
+    <!-- JAVASCRIPT ЛОГИКА -->
+    <script>
+        // Инициализация Telegram SDK
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand(); // Раскрываем окно на весь экран
+
+        // ВСТАВЬ СЮДА СВОЙ URL WEBHOOK ИЗ N8N:
+        const N8N_WEBHOOK_URL = 'HTTPS_URL_ИЗ_ТВОЕЙ_НОДЫ_WEBHOOK_В_N8N';
+
+        // Отображение профиля пользователя из Telegram
+        document.addEventListener("DOMContentLoaded", () => {
+            const user = tg.initDataUnsafe?.user;
+            if (user) {
+                document.getElementById('user-name').innerText = `${user.first_name} ${user.last_name || ''}`.trim();
+                document.getElementById('user-id').innerText = `ID: ${user.id}`;
+                document.getElementById('user-avatar').innerText = user.first_name ? user.first_name[0] : 'U';
+            } else {
+                document.getElementById('user-name').innerText = 'Тестовый Режим';
+            }
+
+            // Предупреждаем в консоли, если забыли подставить реальный вебхук —
+            // иначе ошибка при сохранении ключа выглядит как "сервер недоступен"
+            // и сбивает с толку при отладке.
+            if (!N8N_WEBHOOK_URL.startsWith('http')) {
+                console.error('N8N_WEBHOOK_URL не настроен — вставь реальный URL вебхука из n8n.');
+            }
+        });
+
+        // Переключение вкладок
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('nav button').forEach(el => el.classList.remove('active-tab-btn', 'text-blue-500'));
+
+            document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+            document.getElementById(`btn-${tabName}`).classList.add('active-tab-btn', 'text-blue-500');
+
+            if (tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
+        }
+
+        // Отправка API-ключа на n8n бэкенд
+        async function saveApiKey() {
+            const apiKey = document.getElementById('wb-api-key').value.trim();
+            const saveBtn = document.getElementById('save-btn');
+            const statusCard = document.getElementById('status-card');
+
+            if (!apiKey) {
+                tg.showAlert("Пожалуйста, вставьте API-ключ!");
+                return;
+            }
+
+            // Базовая проверка формата: токены WB — это JWT (начинаются с "eyJ").
+            // Отсекаем явный мусор до похода на сервер.
+            if (!apiKey.startsWith('eyJ')) {
+                tg.showAlert("Похоже, это не похоже на API-ключ WB (ожидается JWT-токен, начинающийся с 'eyJ')");
+                return;
+            }
+
+            if (!N8N_WEBHOOK_URL.startsWith('http')) {
+                tg.showAlert("Приложение ещё не настроено разработчиком (не указан URL вебхука). Сообщите об этом администратору.");
+                return;
+            }
+
+            saveBtn.innerText = "Проверка ключа на WB...";
+            saveBtn.disabled = true;
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+
+            try {
+                // Отправляем POST-запрос в n8n.
+                // ВАЖНО: передаём "сырую" initData (подписанную Telegram HMAC-подписью),
+                // а не initDataUnsafe.user.id/username по отдельности. initDataUnsafe —
+                // это НЕПРОВЕРЕННЫЕ данные, их может подделать кто угодно, вызвав вебхук
+                // напрямую (не через сам Mini App), подставив чужой telegram_id и угнав
+                // чужой аккаунт. На стороне n8n обязательно нужно провалидировать
+                // подпись init_data с помощью токена бота (HMAC-SHA256) и только после
+                // этого доверять содержащемуся в ней user.id — доверять telegram_id
+                // из тела запроса без этой проверки нельзя.
+                const response = await fetch(N8N_WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        init_data: tg.initData || '',
+                        // Оставляем как fallback только для локального теста вне Telegram —
+                        // n8n не должен доверять этому полю в проде.
+                        debug_user_id: tg.initDataUnsafe?.user?.id || null,
+                        debug_username: tg.initDataUnsafe?.user?.username || null,
+                        wb_api_key: apiKey
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Сервер вернул ошибку HTTP ${response.status}`);
+                }
+
+                const result = await response.json();
+
+                if (result.success) {
+                    statusCard.className = "p-4 rounded-xl border border-green-500/50 bg-green-900/20 text-green-400 block";
+                    statusCard.innerHTML = "✅ <b>Успешно!</b> API-ключ валиден и привязан к вашему аккаунту.";
+                    document.getElementById('status-dot').className = "w-3 h-3 rounded-full bg-green-500";
+                    document.getElementById('status-text').innerText = "API подключён";
+                    if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+                } else {
+                    statusCard.className = "p-4 rounded-xl border border-red-500/50 bg-red-900/20 text-red-400 block";
+                    statusCard.innerHTML = `❌ <b>Ошибка:</b> ${result.message || 'Ключ отклонен Wildberries'}`;
+                    if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
+                }
+            } catch (error) {
+                statusCard.className = "p-4 rounded-xl border border-red-500/50 bg-red-900/20 text-red-400 block";
+                statusCard.innerHTML = `❌ <b>Ошибка связи:</b> Не удалось подключиться к серверу n8n (${error.message}).`;
+                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
+            } finally {
+                statusCard.classList.remove('hidden');
+                saveBtn.innerText = "Проверить и сохранить";
+                saveBtn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
